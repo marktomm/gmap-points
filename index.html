@@ -32,23 +32,66 @@
 <script>
 "use strict";
 (function(){
-  
+
   ///// Model
   function Coordinate(data) {
-    this.lat = m.prop(data.lat);
-    this.lng = m.prop(data.lng);
-    this.country = m.prop(data.country);
-    this.url = m.prop(data.url);
-  };
+    this.lat = strNumProp(data.lat);
+    this.lng = strNumProp(data.lng);
 
-  //var countries = m.request({ method: "GET", url: distributorsUrl, type: Coordinate });
+    this.country = m.prop(data.country);
+    validNonEmpty(this.country);
+    this.url = m.prop(data.url);
+    validNonEmpty(this.url);
+    this.everyNonEmpty = function(){
+        return (
+          this.country.valid() &&
+          this.lat.valid() &&
+          this.lng.valid() &&
+          this.url.valid()
+        )
+    }
+  };
+  
+  function validNonEmpty(prop){
+    prop.valid = function(){ return prop().length > 0 }
+  }
+
+ /*
+  function strToNumProp(prop) {
+    return function() {
+      if (arguments.length) prop( parseFloat(arguments[0]) );
+      var v = prop();
+      return isNaN(+v) ? "" : +v
+    };
+  }
+ */
+
+  function strNumProp(v){
+    var prop = {};
+    prop.asText = function(){
+    if(arguments.length>0) v = arguments[0];
+        return ""+v
+    };
+    prop.asNumber = function(){
+    if(arguments.length>0) v = arguments[0];
+        return parseFloat(v);
+    };
+    prop.toJSON = prop.asNumber;
+    prop.isNaN = function(){ return isNaN(prop.asNumber()) }
+    prop.valid = prop.asText.valid = function(){
+      return !prop.isNaN()
+    }
+    return prop;
+  }
+  
+  //var countries = m.request({ method: "GET", url: url, type: Coordinate });
   var countries = m.prop([]); // init empty array with getter/setter methods (imitate m.request() 1/2)
   
   countries_db.map( function(item, index) {
     // populate our array with objects of type Coordinate with getter/setter members (imitate m.request() 2/2)
     countries().push(new Coordinate({lat:item["lat"],lng:item["lng"],country:item["country"],url:item["url"]}))
   });
-  
+
   ///// Controller
   function del(coordRow){
     countries(countries().filter(
@@ -63,72 +106,58 @@
   }
 
   function save(){
-    resortBy(countries(),"country",0);
-    //m.request({ method: "POST", url: distributorsUrl, data: countries() });
+    //m.request({ method: "POST", url: url, data: countries }); //.then(users).then(doSomething)
   }
 
-  function resortBy(list, propName, rev){
+  function valid(){
+    return countries().every(function(coordRow,i,a){ return coordRow.everyNonEmpty() })
+  }
+
+  function resortBy(list, propName){
     var first = list[0]
     list.sort(function(a, b) {
       return a[propName]() > b[propName]() ? 1 : a[propName]() < b[propName]() ? -1 : 0
     })
-    if (rev && first === list[0]) list.reverse()
+    if (first === list[0]) list.reverse()
   }
 
-  function getCountryLoc(coordRow) {
-    var geocoder = new google.maps.Geocoder();
-    geocoder.geocode( {'address': coordRow.country()}, function(results, status) {
-        if (status == google.maps.GeocoderStatus.OK) {
+  function find(){ //serch lat lng by Country name
+    return false;
+  }
 
-          //console.log(status);
-          //console.log(results);
-
-            coordRow.country(results[0].formatted_address);
-            coordRow.lat(results[0].geometry.location.lat());
-            coordRow.lng(results[0].geometry.location.lng());
-            m.redraw(true);
-
-        } else {
-            alert('Geocode was not successful for the following reason: ' + status);
-        }
-    })
-  };
 
   ///// View
   function sortableHead(list,propName){
-    return { onclick: function(e) { resortBy(list, propName,1) } }
+    return { onclick: function(e) { resortBy(list, propName) } }
   }
 
   function binds(prop){
-    return {
-      //oninput: m.withAttr("value", prop), //don't work in IE7
-      onchange: m.withAttr("value", prop),
-      value: prop()
-    }
+    return { oninput: m.withAttr("value", prop), value: prop(), class: prop.valid()?"":"is-error" }
   }
 
   function view() {
       return  [
-                m("button.hover.approve", {onclick: function(ev){ save() } }, "Confirm changes"),
+                m("button", {onclick: function(ev){ save() }, disabled:!valid()}, "Save"),
                 m("table.gtbl", [
                     m("tr",[
-                        m("th.hover", sortableHead(countries(),"country"), "Country name   ", [m("i.fa.fa-sort")]),
+                        m("th", sortableHead(countries(),"country"), "Country country"),
+                        //m("th"),
                         m("th", "LAT"),
                         m("th", "LNG"),
-                        m("th", "URL"),
-                        m("th", m("button.hover", { onclick: function(ev){ add() } }, "Add"))
+                        m("th", sortableHead(countries(),"url"), "URL"),
+                        m("th", m("button", { onclick: function(ev){ add() } }, "Add"))
                     ]),
                     countries().map(  function(coordRow, index) {
-                        return m("tr", [
-                            m("td", [m("input", binds(coordRow.country)), m("button.hover", { onclick: function(ev){ getCountryLoc(coordRow) } }, "Get Lat/Lng") ]),
-                            m("td", m("input", binds(coordRow.lat)) ),
-                            m("td", m("input", binds(coordRow.lng)) ),
-                            m("td", m("input.biginp", binds(coordRow.url)) ),
-                            m("td", m("button.hover.del", { onclick: function(ev){ del(coordRow) } }, "Del"))
-                        ])
+                        return m("tr",/* { "class": coordRow.everyNonEmpty() ? "" : "is-error" },*/ [
+                            m("td", m("input", binds(coordRow.country))),
+                            //m("td", m("button", { onclick: function(ev){ find(coordRow) } }, "Find")),
+                            m("td", m("input", binds(coordRow.lat.asText))),
+                            m("td", m("input", binds(coordRow.lng.asText))),
+                            m("td", m("input", binds(coordRow.url))),
+                            m("td", m("button", { onclick: function(ev){ del(coordRow) } }, "Del"))
+                      ])
                     })
-                ]),
-                m("button.hover.approve", {onclick: function(ev){ save() } }, "Confirm changes")
+                ])
               ];
   };
 
